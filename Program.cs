@@ -2,6 +2,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Biblioteca.Models;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using DinkToPdf.Contracts;
+using DinkToPdf;
+using Biblioteca.Services;
+using Microsoft.AspNetCore.Mvc.ViewEngines;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,6 +33,16 @@ builder.Services.AddAuthentication(options =>{
 #endregion
 
 builder.Services.AddControllersWithViews();
+
+#region configuración de los reportes
+
+builder.Services.AddSingleton(typeof(IConverter), new SynchronizedConverter(new PdfTools()));
+builder.Services.AddScoped<IPdfServices, PdfService>();
+builder.Services.AddSingleton<ICompositeViewEngine, CompositeViewEngine>();
+
+#endregion
+
+
 
 
 #endregion

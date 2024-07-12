@@ -9,6 +9,9 @@ using Biblioteca.Models;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore.Metadata.Internal;
+using Biblioteca.Services;
+using Microsoft.AspNetCore.Mvc.ViewEngines;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
 
 namespace Biblioteca.Controllers
 {
@@ -16,10 +19,14 @@ namespace Biblioteca.Controllers
     public class PrestamoDevolucionsController : Controller
     {
         private readonly SqlDatabaseBibliotecaContext _context;
+        private readonly IPdfServices _pdfService;
+        private readonly ICompositeViewEngine _viewEngine;
 
-        public PrestamoDevolucionsController(SqlDatabaseBibliotecaContext context)
+        public PrestamoDevolucionsController(SqlDatabaseBibliotecaContext context, IPdfServices pdfService, ICompositeViewEngine viewEngine)
         {
             _context = context;
+            _pdfService = pdfService;
+            _viewEngine = viewEngine;
         }
 
         // GET: PrestamoDevolucions
@@ -39,7 +46,8 @@ namespace Biblioteca.Controllers
             ViewData["Idioma"] = new SelectList(_context.Idiomas, "Identificador", "Descripcion");
             ViewData["TipoBibliografia"] = new SelectList(_context.TiposBibliografia, "Identificador", "Descripcion");
 
-            var prestamoDevolucionModel =  new PrestamoDevolucionSearchViewModel() {
+            var prestamoDevolucionModel = new PrestamoDevolucionSearchViewModel()
+            {
                 prestamoDevolucions = prestamos_view,
             };
 
@@ -47,54 +55,96 @@ namespace Biblioteca.Controllers
 
         }
 
-    [HttpPost]
-    [ValidateAntiForgeryToken]
-    public IActionResult Index(PrestamoDevolucionSearchViewModel searchModel, int pageNumber = 1)
+[HttpPost]
+public IActionResult GeneratePdf()
+{
+    int pageSize = 10;
+    int currentPage = 1;
+
+    var prestamos = _context.PrestamoDevolucions
+    .Include(p => p.EmpleadoNavigation)
+    .Include(p => p.LibroNavigation)
+    .Include(p => p.UsuarioNavigation).AsQueryable();
+
+    var prestamos_view = PaginatedList<PrestamoDevolucion>
+    .Create(prestamos, currentPage, pageSize);
+
+    var prestamoDevolucionModel = new PrestamoDevolucionSearchViewModel()
     {
-        var query =  _context.PrestamoDevolucions
-            .Include(p => p.EmpleadoNavigation)
-            .Include(p => p.LibroNavigation)
-            .Include(p => p.UsuarioNavigation).AsQueryable();
+        prestamoDevolucions = prestamos_view,
+    };
 
-        if (searchModel.FechaInicioPrestamo.HasValue)
+    var htmlContent = RenderRazorViewToString("Index", prestamoDevolucionModel);
+    var pdf = _pdfService.GeneratePdf(htmlContent);
+    return File(pdf, "application/pdf", "ReportePrestamos.pdf");
+
+}
+
+        private string RenderRazorViewToString(string viewName, object model)
         {
-            query = query.Where(p => p.FechaPrestamo >= DateOnly.FromDateTime(searchModel.FechaInicioPrestamo.Value));
+            ViewData.Model = model;
+            using var sw = new StringWriter();
+            var viewResult = _viewEngine.FindView(ControllerContext, viewName, false);
+
+            if (!viewResult.Success)
+            {
+                throw new InvalidOperationException($"Couldn't find view '{viewName}'");
+            }
+
+            var viewContext = new ViewContext(ControllerContext, viewResult.View, ViewData, TempData, sw, new HtmlHelperOptions());
+            viewResult.View.RenderAsync(viewContext).Wait();
+            return sw.GetStringBuilder().ToString();
         }
 
-        if (searchModel.FechaFinPrestamo.HasValue)
-        {
-            query = query.Where(p => p.FechaPrestamo <= DateOnly.FromDateTime(searchModel.FechaFinPrestamo.Value));
-        }
 
-        if (searchModel.FechaInicioDevolucion.HasValue)
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult Index(PrestamoDevolucionSearchViewModel searchModel, int pageNumber = 1)
         {
-            query = query.Where(p => p.FechaDevolucion >= DateOnly.FromDateTime(searchModel.FechaInicioDevolucion.Value));
-        }
+            var query = _context.PrestamoDevolucions
+                .Include(p => p.EmpleadoNavigation)
+                .Include(p => p.LibroNavigation)
+                .Include(p => p.UsuarioNavigation).AsQueryable();
 
-        if (searchModel.FechaFinDevolucion.HasValue)
-        {
-            query = query.Where(p => p.FechaDevolucion <= DateOnly.FromDateTime(searchModel.FechaFinDevolucion.Value));
-        }
+            if (searchModel.FechaInicioPrestamo.HasValue)
+            {
+                query = query.Where(p => p.FechaPrestamo >= DateOnly.FromDateTime(searchModel.FechaInicioPrestamo.Value));
+            }
 
-        if (searchModel.TipoBibliografia.HasValue)
-        {
-            query = query.Where(p => p.LibroNavigation.TipoBibliografia == searchModel.TipoBibliografia);
-        }
+            if (searchModel.FechaFinPrestamo.HasValue)
+            {
+                query = query.Where(p => p.FechaPrestamo <= DateOnly.FromDateTime(searchModel.FechaFinPrestamo.Value));
+            }
 
-        if (searchModel.Idioma.HasValue)
-        {
-            query = query.Where(p => p.LibroNavigation.Idioma == searchModel.Idioma);
-        }
+            if (searchModel.FechaInicioDevolucion.HasValue)
+            {
+                query = query.Where(p => p.FechaDevolucion >= DateOnly.FromDateTime(searchModel.FechaInicioDevolucion.Value));
+            }
 
-        searchModel.prestamoDevolucions = PaginatedList<PrestamoDevolucion>.Create(query, pageNumber, 10);
+            if (searchModel.FechaFinDevolucion.HasValue)
+            {
+                query = query.Where(p => p.FechaDevolucion <= DateOnly.FromDateTime(searchModel.FechaFinDevolucion.Value));
+            }
+
+            if (searchModel.TipoBibliografia.HasValue)
+            {
+                query = query.Where(p => p.LibroNavigation.TipoBibliografia == searchModel.TipoBibliografia);
+            }
+
+            if (searchModel.Idioma.HasValue)
+            {
+                query = query.Where(p => p.LibroNavigation.Idioma == searchModel.Idioma);
+            }
+
+            searchModel.prestamoDevolucions = PaginatedList<PrestamoDevolucion>.Create(query, pageNumber, 10);
 
 
 
             ViewData["Idioma"] = new SelectList(_context.Idiomas, "Identificador", "Descripcion");
             ViewData["TipoBibliografia"] = new SelectList(_context.TiposBibliografia, "Identificador", "Descripcion");
 
-        return View(searchModel);
-    }
+            return View(searchModel);
+        }
 
         // GET: PrestamoDevolucions/Details/5
         public async Task<IActionResult> Details(int? id)
@@ -109,7 +159,7 @@ namespace Biblioteca.Controllers
                 .Include(p => p.LibroNavigation)
                 .Include(p => p.UsuarioNavigation)
                 .FirstOrDefaultAsync(m => m.NoPrestamo == id);
-                
+
             if (prestamoDevolucion == null)
             {
                 return NotFound();
@@ -137,7 +187,7 @@ namespace Biblioteca.Controllers
             prestamoDevolucion.Empleado = Convert.ToInt32(User.Claims.FirstOrDefault(c => c.Type == ClaimTypes.PrimarySid)?.Value);
             prestamoDevolucion.FechaPrestamo = DateOnly.FromDateTime(DateTime.Now);
 
-            if(prestamoDevolucion.Empleado == null) 
+            if (prestamoDevolucion.Empleado == null)
             {
                 ModelState.AddModelError(string.Empty, "Por favor, volver a loguearse el ID del usuario no esta disponible");
             }
@@ -205,11 +255,11 @@ namespace Biblioteca.Controllers
                 }
                 return RedirectToAction(nameof(Index));
             }
-            
+
             ViewData["Empleado"] = new SelectList(_context.Empleados, "Identificador", "Nombre", prestamoDevolucion.Empleado);
             ViewData["Libro"] = new SelectList(_context.Libros, "Identificador", "Descripcion", prestamoDevolucion.Libro);
             ViewData["Usuario"] = new SelectList(_context.Usuarios, "Identificador", "Nombre", prestamoDevolucion.Usuario);
-            
+
             return View(prestamoDevolucion);
         }
 

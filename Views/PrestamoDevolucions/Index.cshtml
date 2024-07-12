@@ -79,10 +79,10 @@
             </div>
                 
             <div class="col-3 row justify-content-center align-items-center form-group ">
-                <div class="col-6">
+                <div class="col-4">
                     <button class="btn btn-info text-white" type="submit">Buscar</button>
                 </div>
-                <div class="col-6">
+                <div class="col-4">
                     <button class="btn btn-light bg-white text-dark border border-dark" type="reset">
                         Borrar Datos
                     </button>
@@ -90,6 +90,12 @@
             </div>
         </div>
     </form>
+
+    <div class="col-4 py-3">
+        <form asp-action="GeneratePdf">
+            <button type="submit" class="btn btn-warning">Generar Reporte</button>
+        </form>
+    </div>
 </div>
 
 
